@@ -3,6 +3,7 @@ import torch.nn as nn
 import wandb
 from tqdm import tqdm
 from torchvision.utils import save_image
+import os
 
 
 
@@ -30,7 +31,7 @@ class CycleGan():
         self.disc_hf.train()
         self.disc_lf.train()
 
-        loop = tqdm(train_loader, leave=True)
+        loop = tqdm(train_loader, leave=True, desc="Training")
 
         for idx, (low_field, high_field) in enumerate(loop):
             low_field = low_field.to(self.device)
@@ -96,10 +97,66 @@ class CycleGan():
                 "D_H_real": D_H_real.mean().item(),
                 "D_H_fake": D_H_fake.mean().item()
             })
-            
+
             loop.set_postfix(H_real=H_reals / (idx + 1), H_fake=H_fakes / (idx + 1))
 
 
             
-    
+
+
+    @torch.no_grad()
+    def validate(self, val_loader, l1, LAMBDA_CYCLE, step=None, log_images=False):
+        self.gen_hf.eval()
+        self.gen_lf.eval()
+        
+        total_cycle_l_loss = 0
+        total_cycle_h_loss = 0
+
+        val_loop = tqdm(val_loader, leave=True, desc="Validation")
+
+        for idx, (low_field, high_field) in enumerate(val_loop):
+            low_field = low_field.to(self.device)
+            high_field = high_field.to(self.device)
+
+            fake_h = self.gen_hf(low_field)
+            fake_l = self.gen_lf(high_field)
+
+            cycle_l = self.gen_lf(fake_h)
+            cycle_h = self.gen_hf(fake_l)
+
+            cycle_l_loss = l1(low_field, cycle_l)
+            cycle_h_loss = l1(high_field, cycle_h)
+
+            total_cycle_l_loss += cycle_l_loss.item()
+            total_cycle_h_loss += cycle_h_loss.item()
+
+            val_loop.set_postfix({
+                "Cycle_LF": cycle_l_loss.item(),
+                "Cycle_HF": cycle_h_loss.item()
+            })
+
+            # Log and save images for the first batch
+            if log_images and idx == 0:
+                os.makedirs("val_outputs", exist_ok=True)
+                save_image(fake_h * 0.5 + 0.5, f"val_outputs/fake_h_step{step}.png")
+                save_image(fake_l * 0.5 + 0.5, f"val_outputs/fake_l_step{step}.png")
+
+                wandb.log({
+                    "val/fake_h": wandb.Image(fake_h[0].detach().cpu()),
+                    "val/fake_l": wandb.Image(fake_l[0].detach().cpu())
+                }, step=step)
+
+        mean_cycle_l = total_cycle_l_loss / len(val_loader)
+        mean_cycle_h = total_cycle_h_loss / len(val_loader)
+
+        wandb.log({
+            "val/Cycle_Loss_LF": mean_cycle_l,
+            "val/Cycle_Loss_HF": mean_cycle_h,
+            "val/Total_Cycle_Loss": (mean_cycle_l + mean_cycle_h) * LAMBDA_CYCLE
+        }, step=step)
+
+        self.gen_hf.train()
+        self.gen_lf.train()
+
+
 

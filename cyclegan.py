@@ -45,7 +45,7 @@ val_set = UnpairedMergedDataset(lf_dataset_val, hf_dataset_val)
 test_set = UnpairedMergedDataset(lf_dataset_test, hf_dataset_test)
 
 #### DataLoaders ####
-train_loader = torch.utils.data.DataLoader(train_set, batch_size=4, shuffle=True, num_workers=8, collate_fn=lf_hf_collate_fn)
+train_loader = torch.utils.data.DataLoader(train_set, batch_size=4, shuffle=True, num_workers=4, collate_fn=lf_hf_collate_fn)
 val_loader = torch.utils.data.DataLoader(val_set, batch_size=4, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
 test_loader = torch.utils.data.DataLoader(test_set, batch_size=2, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
 
@@ -130,7 +130,7 @@ class CycleGan():
                     + loss_G_H
                     + cycle_l_loss * LAMBDA_CYCLE
                     + cycle_h_loss * LAMBDA_CYCLE
-                    +identity_h_loss * 0.5 * LAMBDA_CYCLE,
+                    +identity_h_loss * 0.5 * LAMBDA_CYCLE
                     + identity_l_loss * 0.5 * LAMBDA_CYCLE
         
                 )

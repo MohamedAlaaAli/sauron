@@ -8,9 +8,12 @@ import glob
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision.transforms as T
 import fastmri
 from fastmri.data import subsample, transforms, mri_data
+import pydicom
+from sklearn.model_selection import train_test_split
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 
 
@@ -39,7 +42,7 @@ class DataTransform_M4RAW:
             kspace = kspace[None, ...]  # [H,W,2] to [1,H,W,2]
 
         # k-space, transform the data into appropriate format
-        kspace = transforms.to_tensor(kspace)  # [Nc,H,W,2]
+        kspace = ToTensorV2(kspace)  # [Nc,H,W,2]
         Nc = kspace.shape[0]
 
         # ====== Image reshaping ======
@@ -58,7 +61,6 @@ class DataTransform_M4RAW:
         # ====== Fully-sampled ===
         # img space
         image_full = fastmri.complex_abs(image_full)  # [Nc,H,W]
-        image_full = self.normalize(image_full)
         # ====== RSS coil combination ======
         if self.combine_coil:
             image_full = fastmri.rss(image_full, dim=0)  # [H,W]
@@ -106,11 +108,82 @@ class LF_M4RawDataset(Dataset):
 
         return img_tensor  # [1, H, W]
 
-    
 
+class HF_MRI_Dataset(Dataset):
+    def __init__(self, root_dir, transform, split="train", val_size=0.1, test_size=0.1):
+        """
+        Args:
+            root_dir (str): Directory with subject folders containing DICOM files
+            transform (callable): Transform instance for processing images
+            split (str): Data split ('train', 'val', 'test')
+            val_size (float): Proportion of the data to use for validation
+            test_size (float): Proportion of the data to use for test
+        """
+        self.subject_dirs = sorted(glob.glob(os.path.join(root_dir, "*")))  # Each folder represents a subject
+        self.transform = transform
+
+        # Prepare list of all DICOM files (each DICOM file corresponds to one slice)
+        self.dicom_files = []
+        for subject_dir in self.subject_dirs:
+            dicom_files = sorted(glob.glob(os.path.join(subject_dir, "*.dcm")))  # All DICOM files for the subject
+            for dicom_file in dicom_files:
+                self.dicom_files.append(dicom_file)
+
+        # Split the data into train, validation, and test sets
+        train_files, test_files = train_test_split(self.dicom_files, test_size=test_size, random_state=42)
+        train_files, val_files = train_test_split(train_files, test_size=val_size, random_state=42)
+
+        # Assign data split based on the argument
+        if split == "train":
+            self.dicom_files = train_files
+        elif split == "val":
+            self.dicom_files = val_files
+        elif split == "test":
+            self.dicom_files = test_files
+        else:
+            raise ValueError("split must be one of ['train', 'val', 'test']")
+
+    def __len__(self):
+        return len(self.dicom_files)
+
+    def __getitem__(self, idx):
+        # Retrieve one DICOM file (one slice)
+        dicom_file = self.dicom_files[idx]
+        dicom_data = pydicom.dcmread(dicom_file)
+
+        img_array = dicom_data.pixel_array.astype(np.float32)
+        img_transformed = self.transform(image=img_array)["image"]
+        return img_transformed
+
+
+###### Transforms #######
+transform_hf = A.Compose([
+    A.Resize(256, 256),
+    ToTensorV2()
+])
 lf_transform = DataTransform_M4RAW(img_size=256, combine_coil=True)
-lf_dataset = LF_M4RawDataset(root_dir='dataset/low_field/multicoil_train', transform=lf_transform)
 
-joint_loader = torch.utils.data.DataLoader(lf_dataset, batch_size=2, shuffle=False, num_workers=4)
+#### Low Field Datasets: Train, Test, Val ####
+lf_dataset_train = LF_M4RawDataset(root_dir='dataset/low_field/multicoil_train', transform=lf_transform)
+lf_dataset_val = LF_M4RawDataset(root_dir="dataset/low_field/multicoil_val", transform=lf_transform)
+lf_dataset_test = LF_M4RawDataset(root_dir="dataset/low_field/multicoil_test", transform=lf_transform)
+
+#### High Field Datasets: Train, Test, Val
+hf_dataset_train = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
+                                  transform=transform_hf,
+                                  split="train")
+hf_dataset_val = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
+                                  transform=transform_hf,
+                                  split="val")
+hf_dataset_test = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
+                                  transform=transform_hf,
+                                  split="test")
 
 
+
+
+joint_loader = torch.utils.data.DataLoader(hf_dataset_train, batch_size=2, shuffle=False, num_workers=4)
+res = next(iter(joint_loader))
+print(res.shape)
+plt.imshow(res[0].squeeze(0), cmap="gray")
+plt.show()

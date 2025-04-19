@@ -45,9 +45,9 @@ val_set = UnpairedMergedDataset(lf_dataset_val, hf_dataset_val)
 test_set = UnpairedMergedDataset(lf_dataset_test, hf_dataset_test)
 
 #### DataLoaders ####
-train_loader = torch.utils.data.DataLoader(train_set, batch_size=1, shuffle=True, num_workers=4, collate_fn=lf_hf_collate_fn)
-val_loader = torch.utils.data.DataLoader(val_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
-test_loader = torch.utils.data.DataLoader(test_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
+train_loader = torch.utils.data.DataLoader(train_set, batch_size=4, shuffle=True, num_workers=8, collate_fn=lf_hf_collate_fn)
+val_loader = torch.utils.data.DataLoader(val_set, batch_size=4, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
+test_loader = torch.utils.data.DataLoader(test_set, batch_size=2, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
 
 
 
@@ -120,12 +120,18 @@ class CycleGan():
                 cycle_h = self.gen_hf(fake_l)
                 cycle_l_loss = l1(low_field, cycle_l)
                 cycle_h_loss = l1(high_field, cycle_h)
-            
+                # identity losses
+                identity_l = self.gen_lf(low_field)
+                identity_h = self.gen_hf(high_field)
+                identity_l_loss = l1(low_field, identity_l)
+                identity_h_loss = l1(high_field, identity_h)
                 G_loss = (
                     loss_G_Z
                     + loss_G_H
                     + cycle_l_loss * LAMBDA_CYCLE
                     + cycle_h_loss * LAMBDA_CYCLE
+                    +identity_h_loss * 0.5 * LAMBDA_CYCLE,
+                    + identity_l_loss * 0.5 * LAMBDA_CYCLE
         
                 )
 
@@ -144,6 +150,8 @@ class CycleGan():
                 "G_loss": G_loss.item(),
                 "Cycle_Loss_LF": cycle_l_loss.item(),
                 "Cycle_Loss_HF": cycle_h_loss.item(),
+                "Identity_Loss_LF": identity_l_loss.item(),
+                "Identity_Loss_HF": identity_h_loss.item(),
                 "D_H_real": D_H_real.mean().item(),
                 "D_H_fake": D_H_fake.mean().item()
             })

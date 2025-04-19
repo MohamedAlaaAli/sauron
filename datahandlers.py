@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import os
 import pathlib
 import h5py
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, ConcatDataset
 import glob
 import torch
 import torch.nn as nn
@@ -42,7 +42,7 @@ class DataTransform_M4RAW:
             kspace = kspace[None, ...]  # [H,W,2] to [1,H,W,2]
 
         # k-space, transform the data into appropriate format
-        kspace = ToTensorV2(kspace)  # [Nc,H,W,2]
+        kspace = transforms.to_tensor(kspace)  # [Nc,H,W,2]
         Nc = kspace.shape[0]
 
         # ====== Image reshaping ======
@@ -152,8 +152,36 @@ class HF_MRI_Dataset(Dataset):
         dicom_data = pydicom.dcmread(dicom_file)
 
         img_array = dicom_data.pixel_array.astype(np.float32)
+        print(img_array.shape)
         img_transformed = self.transform(image=img_array)["image"]
         return img_transformed
+
+class UnpairedMergedDataset(torch.utils.data.Dataset):
+    def __init__(self, lf_dataset, hf_dataset):
+        self.lf_dataset = lf_dataset
+        self.hf_dataset = hf_dataset
+        self.length = min(len(lf_dataset), len(hf_dataset))  # ensure same length
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, idx):
+        lf_sample = self.lf_dataset[idx]
+        hf_sample = self.hf_dataset[idx]
+
+        # Return both samples as a tuple
+        return lf_sample, hf_sample
+
+def lf_hf_collate_fn(batch):
+    """
+    Batch: a list of 1 element -> [(lf_sample, hf_sample)]
+    """
+    lf_sample, hf_sample = batch[0]  # batch_size = 1
+
+    images = torch.stack([lf_sample, hf_sample], dim=0)  # [2, C, H, W]
+    labels = torch.tensor([0, 1])  # 0 for LF, 1 for HF
+
+    return images, labels
 
 
 ###### Transforms #######
@@ -180,10 +208,18 @@ hf_dataset_test = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_b
                                   split="test")
 
 
+#### Concat Datasets ####
+train_set = UnpairedMergedDataset(lf_dataset_train, hf_dataset_train)
+val_set = UnpairedMergedDataset(lf_dataset_val, hf_dataset_val)
+test_set = UnpairedMergedDataset(lf_dataset_test, hf_dataset_test)
 
+#### DataLoaders ####
+train_loader = torch.utils.data.DataLoader(train_set, batch_size=1, shuffle=True, num_workers=4, collate_fn=lf_hf_collate_fn)
+val_loader = torch.utils.data.DataLoader(val_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
+test_loader = torch.utils.data.DataLoader(test_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
 
-joint_loader = torch.utils.data.DataLoader(hf_dataset_train, batch_size=2, shuffle=False, num_workers=4)
-res = next(iter(joint_loader))
-print(res.shape)
-plt.imshow(res[0].squeeze(0), cmap="gray")
+res = next(iter(train_loader))
+plt.imshow(res[0][0].squeeze(0), cmap="gray")
+plt.show()
+plt.imshow(res[0][1].squeeze(0), cmap="gray")
 plt.show()

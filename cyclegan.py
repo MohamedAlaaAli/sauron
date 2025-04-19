@@ -28,6 +28,7 @@ class CycleGan():
         self.gen_hf = gen_hf.to(device)
         self.gen_lf = gen_lf.to(device)
         self.device = device
+        self.best_loss = float("inf")
         os.makedirs("outputs", exist_ok=True)
         os.makedirs("val_outputs", exist_ok=True)
         
@@ -166,7 +167,7 @@ class CycleGan():
 
         total_cycle_loss = (mean_cycle_l + mean_cycle_h) * LAMBDA_CYCLE
         self.save_best_model(total_cycle_loss, step=step)
-        
+
         self.gen_hf.train()
         self.gen_lf.train()
     

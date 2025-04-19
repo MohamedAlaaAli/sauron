@@ -10,6 +10,41 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import numpy as np
 from PIL import Image
+from datahandlers import DataTransform_M4RAW, LF_M4RawDataset, HF_MRI_Dataset, UnpairedMergedDataset, lf_hf_collate_fn
+
+###### Transforms #######
+transform_hf = A.Compose([
+    A.Resize(256, 256),
+    ToTensorV2()
+])
+lf_transform = DataTransform_M4RAW(img_size=256, combine_coil=True)
+
+#### Low Field Datasets: Train, Test, Val ####
+lf_dataset_train = LF_M4RawDataset(root_dir='dataset/low_field/multicoil_train', transform=lf_transform)
+lf_dataset_val = LF_M4RawDataset(root_dir="dataset/low_field/multicoil_val", transform=lf_transform)
+lf_dataset_test = LF_M4RawDataset(root_dir="dataset/low_field/multicoil_test", transform=lf_transform)
+
+#### High Field Datasets: Train, Test, Val
+hf_dataset_train = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
+                                  transform=transform_hf,
+                                  split="train")
+hf_dataset_val = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
+                                  transform=transform_hf,
+                                  split="val")
+hf_dataset_test = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
+                                  transform=transform_hf,
+                                  split="test")
+
+
+#### Concat Datasets ####
+train_set = UnpairedMergedDataset(lf_dataset_train, hf_dataset_train)
+val_set = UnpairedMergedDataset(lf_dataset_val, hf_dataset_val)
+test_set = UnpairedMergedDataset(lf_dataset_test, hf_dataset_test)
+
+#### DataLoaders ####
+train_loader = torch.utils.data.DataLoader(train_set, batch_size=1, shuffle=True, num_workers=4, collate_fn=lf_hf_collate_fn)
+val_loader = torch.utils.data.DataLoader(val_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
+test_loader = torch.utils.data.DataLoader(test_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
 
 
 
@@ -187,46 +222,11 @@ class CycleGan():
 
 
 
-
-class HorseZebraDataset(Dataset):
-    def __init__(self, root_zebra, root_horse, transform=None):
-        self.root_zebra = root_zebra
-        self.root_horse = root_horse
-        self.transform = transform
-
-        self.zebra_images = os.listdir(root_zebra)
-        self.horse_images = os.listdir(root_horse)
-        self.length_dataset = max(len(self.zebra_images), len(self.horse_images))
-        self.zebra_len = len(self.zebra_images)
-        self.horse_len = len(self.horse_images)
-
-    def __len__(self):
-        return self.length_dataset
-
-    def __getitem__(self, index):
-        zebra_img = self.zebra_images[index % self.zebra_len]
-        horse_img = self.horse_images[index % self.horse_len]
-
-        zebra_path = os.path.join(self.root_zebra, zebra_img)
-        horse_path = os.path.join(self.root_horse, horse_img)
-
-        zebra_img = np.array(Image.open(zebra_path).convert("RGB"))
-        horse_img = np.array(Image.open(horse_path).convert("RGB"))
-
-        if self.transform:
-            augmentations = self.transform(image=zebra_img, image0=horse_img)
-            zebra_img = augmentations["image"]
-            horse_img = augmentations["image0"]
-
-        return zebra_img, horse_img
-
-
-
 def main():
-    disc_H = Discriminator(in_channels=3)
-    disc_Z = Discriminator(in_channels=3)
-    gen_Z = Generator(img_channels=3, num_residuals=9)
-    gen_H = Generator(img_channels=3, num_residuals=9)
+    disc_H = Discriminator(in_channels=1)
+    disc_Z = Discriminator(in_channels=1)
+    gen_Z = Generator(img_channels=1, num_residuals=9)
+    gen_H = Generator(img_channels=1, num_residuals=9)
 
     # use Adam Optimizer for both generator and discriminator
     opt_disc = torch.optim.Adam(
@@ -252,37 +252,13 @@ def main():
     additional_targets={"image0": "image"},
     )
 
-
-    dataset = HorseZebraDataset(
-        root_horse="my_horse2zebra/train" + "/train_A",
-        root_zebra="my_horse2zebra/train" + "/train_B",
-        transform=transforms,
-    )
-    val_dataset = HorseZebraDataset(
-        root_horse="my_horse2zebra/test" + "/test_A",
-        root_zebra="my_horse2zebra/test" + "/test_B",
-        transform=transforms,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=1,
-        shuffle=False,
-        pin_memory=True,
-    )
-    loader = DataLoader(
-        dataset,
-        batch_size=1,
-        shuffle=True,
-        pin_memory=True,
-        num_workers=4
-    )
     g_scaler = torch.amp.GradScaler("cuda")
     d_scaler = torch.amp.GradScaler("cuda")
 
     model = CycleGan(disc_H, disc_Z, gen_H, gen_Z)
 
     for epoch in range(50):
-        model.train(loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler, 10)
+        model.train(train_loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler, 10)
         model.validate(val_loader, L1, 10, step=epoch, log_images=(epoch % 5 == 0))
 
 

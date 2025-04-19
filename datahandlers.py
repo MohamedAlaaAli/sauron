@@ -14,7 +14,11 @@ import pydicom
 from sklearn.model_selection import train_test_split
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+import torchvision.transforms as T
 
+def normalize(tensor):
+    """Normalize tensor to range [0,1]."""
+    return (tensor - tensor.min()) / (tensor.max() - tensor.min() + 1e-8)  # Avoid division by zero
 
 
 
@@ -51,26 +55,25 @@ class DataTransform_M4RAW:
         # # center cropping
         # image_full = transforms.complex_center_crop(image_full, [self.img_size, self.img_size])  # [Nc,H,W,2]
         # # resize img
-        # if self.img_size != 320:
-        #     image_full = torch.einsum('nhwc->nchw', image_full)
-        #     image_full = T.Resize(size=self.img_size)(image_full)
-        #     image_full = torch.einsum('nchw->nhwc', image_full)
+        if self.img_size != 320:
+            image_full = torch.einsum('nhwc->nchw', image_full)
+            image_full = T.Resize(size=self.img_size)(image_full)
+            image_full = torch.einsum('nchw->nhwc', image_full)
         # img to k-space
         kspace = fastmri.fft2c(image_full)  # [Nc,H,W,2]
 
         # ====== Fully-sampled ===
         # img space
-        image_full = fastmri.complex_abs(image_full)  # [Nc,H,W]
+        image_full = fastmri.complex_abs(image_full)  # [Nc,H,W]        
         # ====== RSS coil combination ======
         if self.combine_coil:
             image_full = fastmri.rss(image_full, dim=0)  # [H,W]
-
             # img [B,1,H,W], 
-            return  image_full.unsqueeze(0)
+            return  self.normalize(image_full).unsqueeze(0)
 
         else:  # if not combine coil
             # img [B,Nc,H,W], 
-            return  image_full
+            return  self.normalize(image_full)
 
 
 class LF_M4RawDataset(Dataset):
@@ -169,7 +172,7 @@ class UnpairedMergedDataset(torch.utils.data.Dataset):
         hf_sample = self.hf_dataset[idx]
 
         # Return both samples as a tuple
-        return lf_sample, hf_sample
+        return lf_sample, normalize(hf_sample)
 
 def lf_hf_collate_fn(batch):
     """

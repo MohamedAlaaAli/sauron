@@ -11,6 +11,9 @@ from albumentations.pytorch import ToTensorV2
 import numpy as np
 from PIL import Image
 from datahandlers import DataTransform_M4RAW, LF_M4RawDataset, HF_MRI_Dataset, UnpairedMergedDataset, lf_hf_collate_fn
+import matplotlib.pyplot as plt
+import torchvision.transforms.functional as F
+
 
 ###### Transforms #######
 transform_hf = A.Compose([
@@ -81,8 +84,6 @@ class CycleGan():
         for idx, data in enumerate(loop):
             low_field = data[0].to(self.device)
             high_field = data[1].to(self.device)
-            if idx == 0:
-                print(low_field.shape)
 
             with torch.amp.autocast("cuda"):
                 fake_h = self.gen_hf(low_field)
@@ -132,9 +133,11 @@ class CycleGan():
             g_scaler.scale(G_loss).backward()
             g_scaler.step(gen_optimizer)
             g_scaler.update()
-            if idx % 200 == 0:
-                save_image(fake_h.detach() * 0.5 + 0.5, f"outputs/hf_{idx}.png")
-                save_image(fake_l.detach() * 0.5 + 0.5, f"outputs/lf{idx}.png")
+            if idx % 2000 == 0:
+                img_h = F.to_pil_image(fake_h[0] * 0.5 + 0.5)
+                img_h.save(f"outputs/hf_{idx}.png")
+                img_l = F.to_pil_image(fake_l[0] * 0.5 + 0.5)
+                img_l.save(f"outputs/lf_{idx}.png")
 
             wandb.log({
                 "D_loss": D_loss.item(),

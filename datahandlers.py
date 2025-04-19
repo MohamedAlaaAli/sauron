@@ -152,7 +152,6 @@ class HF_MRI_Dataset(Dataset):
         dicom_data = pydicom.dcmread(dicom_file)
 
         img_array = dicom_data.pixel_array.astype(np.float32)
-        print(img_array.shape)
         img_transformed = self.transform(image=img_array)["image"]
         return img_transformed
 
@@ -179,9 +178,7 @@ def lf_hf_collate_fn(batch):
     lf_sample, hf_sample = batch[0]  # batch_size = 1
 
     images = torch.stack([lf_sample, hf_sample], dim=0)  # [2, C, H, W]
-    labels = torch.tensor([0, 1])  # 0 for LF, 1 for HF
-
-    return images, labels
+    return images
 
 
 # ###### Transforms #######
@@ -217,9 +214,3 @@ def lf_hf_collate_fn(batch):
 # train_loader = torch.utils.data.DataLoader(train_set, batch_size=1, shuffle=True, num_workers=4, collate_fn=lf_hf_collate_fn)
 # val_loader = torch.utils.data.DataLoader(val_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
 # test_loader = torch.utils.data.DataLoader(test_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
-
-res = next(iter(train_loader))
-plt.imshow(res[0][0].squeeze(0), cmap="gray")
-plt.show()
-plt.imshow(res[0][1].squeeze(0), cmap="gray")
-plt.show()

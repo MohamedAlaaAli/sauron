@@ -78,9 +78,11 @@ class CycleGan():
 
         loop = tqdm(train_loader, leave=True, desc="Training")
 
-        for idx, (low_field, high_field) in enumerate(loop):
-            low_field = low_field.to(self.device)
-            high_field = high_field.to(self.device)
+        for idx, data in enumerate(loop):
+            low_field = data[0].to(self.device)
+            high_field = data[1].to(self.device)
+            if idx == 0:
+                print(low_field.shape)
 
             with torch.amp.autocast("cuda"):
                 fake_h = self.gen_hf(low_field)
@@ -159,9 +161,9 @@ class CycleGan():
 
         val_loop = tqdm(val_loader, leave=True, desc="Validation")
 
-        for idx, (low_field, high_field) in enumerate(val_loop):
-            low_field = low_field.to(self.device)
-            high_field = high_field.to(self.device)
+        for idx, data in enumerate(val_loop):
+            low_field = data[0].to(self.device)
+            high_field = data[1].to(self.device)
 
             fake_h = self.gen_hf(low_field)
             fake_l = self.gen_lf(high_field)

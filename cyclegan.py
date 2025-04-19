@@ -4,6 +4,13 @@ import wandb
 from tqdm import tqdm
 from torchvision.utils import save_image
 import os
+from gans import Discriminator, Generator
+from torch.utils.data import DataLoader, Dataset
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+import numpy as np
+from PIL import Image
+
 
 
 
@@ -15,12 +22,14 @@ class CycleGan():
                  gen_hf, 
                  gen_lf, 
                  device="cuda" if torch.cuda.is_available() else "cpu"):
-        
+        wandb.init()
         self.disc_hf = disc_hf.to(device)
         self.disc_lf = disc_lf.to(device)
         self.gen_hf = gen_hf.to(device)
         self.gen_lf = gen_lf.to(device)
         self.device = device
+        os.makedirs("outputs", exist_ok=True)
+        os.makedirs("val_outputs", exist_ok=True)
         
     
     def train(self, train_loader, disc_optimizer, gen_optimizer, l1, mse, d_scaler, g_scaler, LAMBDA_CYCLE):
@@ -155,8 +164,125 @@ class CycleGan():
             "val/Total_Cycle_Loss": (mean_cycle_l + mean_cycle_h) * LAMBDA_CYCLE
         }, step=step)
 
+        total_cycle_loss = (mean_cycle_l + mean_cycle_h) * LAMBDA_CYCLE
+        self.save_best_model(total_cycle_loss, step=step)
+        
         self.gen_hf.train()
         self.gen_lf.train()
+    
+    def save_best_model(self, mean_cycle_loss, step=None):
+        if mean_cycle_loss < self.best_loss:
+            self.best_loss = mean_cycle_loss
+            os.makedirs("checkpoints", exist_ok=True)
+
+            torch.save(self.gen_hf.state_dict(), "checkpoints/best_gen_hf.pth")
+            torch.save(self.gen_lf.state_dict(), "checkpoints/best_gen_lf.pth")
+            torch.save(self.disc_hf.state_dict(), "checkpoints/best_disc_hf.pth")
+            torch.save(self.disc_lf.state_dict(), "checkpoints/best_disc_lf.pth")
+
+            if step is not None:
+                wandb.log({"best_model_saved": True}, step=step)
+            print(f"Saved new best model with cycle loss: {mean_cycle_loss:.4f}")
 
 
 
+
+class HorseZebraDataset(Dataset):
+    def __init__(self, root_zebra, root_horse, transform=None):
+        self.root_zebra = root_zebra
+        self.root_horse = root_horse
+        self.transform = transform
+
+        self.zebra_images = os.listdir(root_zebra)
+        self.horse_images = os.listdir(root_horse)
+        self.length_dataset = max(len(self.zebra_images), len(self.horse_images))
+        self.zebra_len = len(self.zebra_images)
+        self.horse_len = len(self.horse_images)
+
+    def __len__(self):
+        return self.length_dataset
+
+    def __getitem__(self, index):
+        zebra_img = self.zebra_images[index % self.zebra_len]
+        horse_img = self.horse_images[index % self.horse_len]
+
+        zebra_path = os.path.join(self.root_zebra, zebra_img)
+        horse_path = os.path.join(self.root_horse, horse_img)
+
+        zebra_img = np.array(Image.open(zebra_path).convert("RGB"))
+        horse_img = np.array(Image.open(horse_path).convert("RGB"))
+
+        if self.transform:
+            augmentations = self.transform(image=zebra_img, image0=horse_img)
+            zebra_img = augmentations["image"]
+            horse_img = augmentations["image0"]
+
+        return zebra_img, horse_img
+
+
+
+def main():
+    disc_H = Discriminator(in_channels=3)
+    disc_Z = Discriminator(in_channels=3)
+    gen_Z = Generator(img_channels=3, num_residuals=9)
+    gen_H = Generator(img_channels=3, num_residuals=9)
+
+    # use Adam Optimizer for both generator and discriminator
+    opt_disc = torch.optim.Adam(
+        list(disc_H.parameters()) + list(disc_Z.parameters()),
+        lr=1e-5,
+        betas=(0.5, 0.999),
+    )
+
+    opt_gen = torch.optim.Adam(
+        list(gen_Z.parameters()) + list(gen_H.parameters()),
+        lr=1e-5,
+        betas=(0.5, 0.999),
+    )
+
+    L1 = nn.L1Loss()
+    mse = nn.MSELoss()
+
+    transforms = A.Compose(
+    [
+        A.Resize(width=256, height=256),
+        ToTensorV2(),
+    ],
+    additional_targets={"image0": "image"},
+    )
+
+
+    dataset = HorseZebraDataset(
+        root_horse="my_horse2zebra/train" + "/train_A",
+        root_zebra="my_horse2zebra/train" + "/train_B",
+        transform=transforms,
+    )
+    val_dataset = HorseZebraDataset(
+        root_horse="my_horse2zebra/test" + "/test_A",
+        root_zebra="my_horse2zebra/test" + "/test_B",
+        transform=transforms,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=1,
+        shuffle=False,
+        pin_memory=True,
+    )
+    loader = DataLoader(
+        dataset,
+        batch_size=1,
+        shuffle=True,
+        pin_memory=True,
+        num_workers=4
+    )
+    g_scaler = torch.amp.GradScaler("cuda")
+    d_scaler = torch.amp.GradScaler("cuda")
+
+    model = CycleGan(disc_H, disc_Z, gen_H, gen_Z)
+
+    for epoch in range(50):
+        model.train(loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler, 10)
+        model.validate(val_loader, L1, 10, step=epoch, log_images=(epoch % 5 == 0))
+
+
+main()

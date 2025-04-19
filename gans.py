@@ -146,7 +146,7 @@ class ConvInstanceNormLeakyReLUBlock(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, in_channels=3, features=[64, 128, 256, 512]):
+    def __init__(self, in_channels=1, features=[64, 128, 256, 512]):
         super().__init__()
         self.initial_layer = nn.Sequential(
             nn.Conv2d(

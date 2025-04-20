@@ -50,6 +50,45 @@ val_loader = torch.utils.data.DataLoader(val_set, batch_size=4, shuffle=False, n
 test_loader = torch.utils.data.DataLoader(test_set, batch_size=2, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
 
 
+def warmup(
+    loader,
+    disc_hf, disc_lf,
+    gen_hf, gen_lf,
+    opt_disc,
+    mse,
+    d_scaler,
+    device,
+    warmup_steps=100
+):
+    """
+    Pre-train the discriminators for `warmup_steps` batches before starting generator updates.
+    """
+    it = iter(loader)
+    for i in range(warmup_steps):
+        try:
+            data = next(it)
+        except StopIteration:
+            break
+        low_field, high_field = data[0].to(device), data[1].to(device)
+        with torch.cuda.amp.autocast():
+            # generate fake without updating generators
+            fake_h = gen_hf(low_field).detach()
+            fake_l = gen_lf(high_field).detach()
+            # HF discriminator loss
+            D_H_real = disc_hf(high_field)
+            D_H_fake = disc_hf(fake_h)
+            D_H_loss = mse(D_H_real, torch.ones_like(D_H_real)) + \
+                       mse(D_H_fake, torch.zeros_like(D_H_fake))
+            # LF discriminator loss
+            D_l_real = disc_lf(low_field)
+            D_l_fake = disc_lf(fake_l)
+            D_l_loss = mse(D_l_real, torch.ones_like(D_l_real)) + \
+                       mse(D_l_fake, torch.zeros_like(D_l_fake))
+            D_loss = 0.5 * (D_H_loss + D_l_loss)
+        opt_disc.zero_grad()
+        d_scaler.scale(D_loss).backward()
+        d_scaler.step(opt_disc)
+        d_scaler.update()
 
 
 class CycleGan():
@@ -71,7 +110,22 @@ class CycleGan():
         os.makedirs("val_outputs", exist_ok=True)
         
     
-    def train(self, train_loader, disc_optimizer, gen_optimizer, l1, mse, d_scaler, g_scaler, LAMBDA_CYCLE):
+    def train(self, train_loader, disc_optimizer, gen_optimizer, l1, mse, d_scaler, g_scaler, LAMBDA_CYCLE, warmup_steps=100):
+
+        # 1) Warm-up discriminators
+        warmup(
+            train_loader,
+            self.disc_hf,
+            self.disc_lf,
+            self.gen_hf,
+            self.gen_lf,
+            disc_optimizer,
+            mse,
+            d_scaler,
+            self.device,
+            warmup_steps
+        )
+
         H_reals = 0
         H_fakes = 0
         self.gen_hf.train()
@@ -109,6 +163,7 @@ class CycleGan():
             d_scaler.step(disc_optimizer)
             d_scaler.update()
 
+
             with torch.amp.autocast("cuda"):
                 D_H_fake = self.disc_hf(fake_h)
                 D_l_fake = self.disc_lf(fake_l)
@@ -144,17 +199,17 @@ class CycleGan():
                 img_h.save(f"outputs/hf_{idx}.png")
                 img_l = F.to_pil_image(fake_l[0] * 0.5 + 0.5)
                 img_l.save(f"outputs/lf_{idx}.png")
-
-            wandb.log({
-                "D_loss": D_loss.item(),
-                "G_loss": G_loss.item(),
-                "Cycle_Loss_LF": cycle_l_loss.item(),
-                "Cycle_Loss_HF": cycle_h_loss.item(),
-                "Identity_Loss_LF": identity_l_loss.item(),
-                "Identity_Loss_HF": identity_h_loss.item(),
-                "D_H_real": D_H_real.mean().item(),
-                "D_H_fake": D_H_fake.mean().item()
-            })
+            if idx % 20 == 0:
+                wandb.log({
+                    "D_loss": D_loss.item(),
+                    "G_loss": G_loss.item(),
+                    "Cycle_Loss_LF": cycle_l_loss.item(),
+                    "Cycle_Loss_HF": cycle_h_loss.item(),
+                    "Identity_Loss_LF": identity_l_loss.item(),
+                    "Identity_Loss_HF": identity_h_loss.item(),
+                    "D_H_real": D_H_real.mean().item(),
+                    "D_H_fake": D_H_fake.mean().item()
+                })
 
             loop.set_postfix(H_real=H_reals / (idx + 1), H_fake=H_fakes / (idx + 1))
 
@@ -194,7 +249,7 @@ class CycleGan():
             })
 
             # Log and save images for the first batch
-            if log_images and idx == 0:
+            if log_images and idx % 200 == 0:
                 os.makedirs("val_outputs", exist_ok=True)
                 save_image(fake_h * 0.5 + 0.5, f"val_outputs/fake_h_step{step}.png")
                 save_image(fake_l * 0.5 + 0.5, f"val_outputs/fake_l_step{step}.png")
@@ -244,13 +299,13 @@ def main():
     # use Adam Optimizer for both generator and discriminator
     opt_disc = torch.optim.Adam(
         list(disc_H.parameters()) + list(disc_Z.parameters()),
-        lr=1e-5,
+        lr=2e-4,
         betas=(0.5, 0.999),
     )
 
     opt_gen = torch.optim.Adam(
         list(gen_Z.parameters()) + list(gen_H.parameters()),
-        lr=1e-5,
+        lr=2e-4,
         betas=(0.5, 0.999),
     )
 

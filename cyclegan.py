@@ -218,35 +218,61 @@ class CycleGan():
 
 
     @torch.no_grad()
-    def validate(self, val_loader, l1, LAMBDA_CYCLE, step=None, log_images=False):
+    def validate(self, val_loader, l1, mse, LAMBDA_CYCLE, step=None, log_images=False):
         self.gen_hf.eval()
         self.gen_lf.eval()
         
-        total_cycle_l_loss = 0
-        total_cycle_h_loss = 0
-
         val_loop = tqdm(val_loader, leave=True, desc="Validation")
 
         for idx, data in enumerate(val_loop):
             low_field = data[0].to(self.device)
             high_field = data[1].to(self.device)
+            
+            with torch.amp.autocast("cuda"):
+                fake_h = self.gen_hf(low_field)
+                D_H_real = self.disc_hf(high_field)
+                D_H_fake = self.disc_hf(fake_h.detach())
+                H_reals += D_H_real.mean().item()
+                H_fakes += D_H_fake.mean().item()
+                D_H_real_loss = mse(D_H_real, torch.ones_like(D_H_real))
+                D_H_fake_loss = mse(D_H_fake, torch.zeros_like(D_H_fake))
+                D_H_loss = D_H_real_loss + D_H_fake_loss
 
-            fake_h = self.gen_hf(low_field)
-            fake_l = self.gen_lf(high_field)
+                fake_l = self.gen_lf(high_field)
+                D_l_real = self.disc_lf(low_field)
+                D_l_fake = self.disc_lf(fake_l.detach())
+                D_l_real_loss = mse(D_l_real, torch.ones_like(D_l_real))
+                D_l_fake_loss = mse(D_l_fake, torch.zeros_like(D_l_fake))
+                D_l_loss = D_l_real_loss + D_l_fake_loss
 
-            cycle_l = self.gen_lf(fake_h)
-            cycle_h = self.gen_hf(fake_l)
+                D_loss = (D_H_loss + D_l_loss) / 2
 
-            cycle_l_loss = l1(low_field, cycle_l)
-            cycle_h_loss = l1(high_field, cycle_h)
+            with torch.amp.autocast("cuda"):
+                D_H_fake = self.disc_hf(fake_h)
+                D_l_fake = self.disc_lf(fake_l)
+                loss_G_H = mse(D_H_fake, torch.ones_like(D_H_fake))
+                loss_G_Z = mse(D_l_fake, torch.ones_like(D_l_fake))
 
-            total_cycle_l_loss += cycle_l_loss.item()
-            total_cycle_h_loss += cycle_h_loss.item()
+                # cycle losses
+                cycle_l = self.gen_lf(fake_h)
+                cycle_h = self.gen_hf(fake_l)
+                cycle_l_loss = l1(low_field, cycle_l)
+                cycle_h_loss = l1(high_field, cycle_h)
+                # identity losses
+                identity_l = self.gen_lf(low_field)
+                identity_h = self.gen_hf(high_field)
+                identity_l_loss = l1(low_field, identity_l)
+                identity_h_loss = l1(high_field, identity_h)
+                G_loss = (
+                    loss_G_Z
+                    + loss_G_H
+                    + cycle_l_loss * LAMBDA_CYCLE
+                    + cycle_h_loss * LAMBDA_CYCLE
+                    +identity_h_loss * 0.5 * LAMBDA_CYCLE
+                    + identity_l_loss * 0.5 * LAMBDA_CYCLE
+        
+                )
 
-            val_loop.set_postfix({
-                "Cycle_LF": cycle_l_loss.item(),
-                "Cycle_HF": cycle_h_loss.item()
-            })
 
             # Log and save images for the first batch
             if log_images and idx % 200 == 0:
@@ -254,22 +280,19 @@ class CycleGan():
                 save_image(fake_h * 0.5 + 0.5, f"val_outputs/fake_h_step{step}.png")
                 save_image(fake_l * 0.5 + 0.5, f"val_outputs/fake_l_step{step}.png")
 
+            if idx % 20 == 0:
                 wandb.log({
-                    "val/fake_h": wandb.Image(fake_h[0].detach().cpu()),
-                    "val/fake_l": wandb.Image(fake_l[0].detach().cpu())
-                }, step=step)
+                    "D_loss": D_loss.item(),
+                    "G_loss": G_loss.item(),
+                    "Cycle_Loss_LF": cycle_l_loss.item(),
+                    "Cycle_Loss_HF": cycle_h_loss.item(),
+                    "Identity_Loss_LF": identity_l_loss.item(),
+                    "Identity_Loss_HF": identity_h_loss.item(),
+                    "D_H_real": D_H_real.mean().item(),
+                    "D_H_fake": D_H_fake.mean().item()
+                })
 
-        mean_cycle_l = total_cycle_l_loss / len(val_loader)
-        mean_cycle_h = total_cycle_h_loss / len(val_loader)
-
-        wandb.log({
-            "val/Cycle_Loss_LF": mean_cycle_l,
-            "val/Cycle_Loss_HF": mean_cycle_h,
-            "val/Total_Cycle_Loss": (mean_cycle_l + mean_cycle_h) * LAMBDA_CYCLE
-        }, step=step)
-
-        total_cycle_loss = (mean_cycle_l + mean_cycle_h) * LAMBDA_CYCLE
-        self.save_best_model(total_cycle_loss, step=step)
+        self.save_best_model(G_loss, step=step)
 
         self.gen_hf.train()
         self.gen_lf.train()
@@ -288,6 +311,11 @@ class CycleGan():
                 wandb.log({"best_model_saved": True}, step=step)
             print(f"Saved new best model with cycle loss: {mean_cycle_loss:.4f}")
 
+    def save_model(self):
+        torch.save(self.gen_hf.state_dict(), "checkpoints/last_gen_hf.pth")
+        torch.save(self.gen_lf.state_dict(), "checkpoints/last_gen_lf.pth")
+        torch.save(self.disc_hf.state_dict(), "checkpoints/last_disc_hf.pth")
+        torch.save(self.disc_lf.state_dict(), "checkpoints/last_disc_lf.pth")
 
 
 def main():
@@ -326,8 +354,11 @@ def main():
     model = CycleGan(disc_H, disc_Z, gen_H, gen_Z)
 
     for epoch in range(50):
+        print("Epoch : {epoch} Training")
         model.train(train_loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler, 10)
-        model.validate(val_loader, L1, 10, step=epoch, log_images=(epoch % 5 == 0))
-
+        model.validate(val_loader, L1, 10, step=epoch, log_images=True)
+    
+    
+    model.save_model()
 
 main()

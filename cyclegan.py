@@ -194,11 +194,26 @@ class CycleGan():
             g_scaler.scale(G_loss).backward()
             g_scaler.step(gen_optimizer)
             g_scaler.update()
-            if idx % 2000 == 0:
-                img_h = F.to_pil_image(fake_h[0] * 0.5 + 0.5)
-                img_h.save(f"outputs/hf_{idx}.png")
-                img_l = F.to_pil_image(fake_l[0] * 0.5 + 0.5)
-                img_l.save(f"outputs/lf_{idx}.png")
+            if idx % 500 == 0:
+                img_h = fake_h[0].detach().cpu().numpy() * 0.5 + 0.5
+                img_l = fake_l[0].detach().cpu().numpy() * 0.5 + 0.5
+                plt.imshow(img_h, cmap="gray")
+                plt.imshow(img_l, cmap="gray")
+
+                fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+                axs[0].imshow(img_h, cmap="gray")
+                axs[0].set_title("High-res")
+                axs[0].axis("off")
+
+                axs[1].imshow(img_l, cmap="gray")
+                axs[1].set_title("Low-res")
+                axs[1].axis("off")
+                plt.suptitle(f"Sample {idx}")
+                plt.tight_layout()
+                plt.savefig(f"outputs/h_l{idx}.png", bbox_inches='tight')
+                plt.close()
+
+
             if idx % 20 == 0:
                 wandb.log({
                     "D_loss": D_loss.item(),
@@ -277,8 +292,23 @@ class CycleGan():
             # Log and save images for the first batch
             if log_images and idx % 200 == 0:
                 os.makedirs("val_outputs", exist_ok=True)
-                save_image(fake_h * 0.5 + 0.5, f"val_outputs/fake_h_step{step}.png")
-                save_image(fake_l * 0.5 + 0.5, f"val_outputs/fake_l_step{step}.png")
+                img_h = fake_h[0].detach().cpu().numpy() * 0.5 + 0.5
+                img_l = fake_l[0].detach().cpu().numpy() * 0.5 + 0.5
+                plt.imshow(img_h, cmap="gray")
+                plt.imshow(img_l, cmap="gray")
+
+                fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+                axs[0].imshow(img_h, cmap="gray")
+                axs[0].set_title("High-res")
+                axs[0].axis("off")
+
+                axs[1].imshow(img_l, cmap="gray")
+                axs[1].set_title("Low-res")
+                axs[1].axis("off")
+                plt.suptitle(f"Sample {idx}")
+                plt.tight_layout()
+                plt.savefig(f"val_outputs/h_l{idx}.png", bbox_inches='tight')
+                plt.close()
 
             if idx % 20 == 0:
                 wandb.log({
@@ -340,21 +370,13 @@ def main():
     L1 = nn.L1Loss()
     mse = nn.MSELoss()
 
-    transforms = A.Compose(
-    [
-        A.Resize(width=256, height=256),
-        ToTensorV2(),
-    ],
-    additional_targets={"image0": "image"},
-    )
-
     g_scaler = torch.amp.GradScaler("cuda")
     d_scaler = torch.amp.GradScaler("cuda")
 
     model = CycleGan(disc_H, disc_Z, gen_H, gen_Z)
 
     for epoch in range(50):
-        print("Epoch : {epoch} Training")
+        print(f"Epoch : {epoch} Training")
         model.train(train_loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler, 10)
         model.validate(val_loader, L1, 10, step=epoch, log_images=True)
     

@@ -17,8 +17,9 @@ from albumentations.pytorch import ToTensorV2
 import torchvision.transforms as T
 
 def normalize(tensor):
-    """Normalize tensor to range [0,1]."""
-    return (tensor - tensor.min()) / (tensor.max() - tensor.min() + 1e-8)  # Avoid division by zero
+    """Normalize tensor to range [-1,1]."""
+    img=  (tensor - tensor.min()) / (tensor.max() - tensor.min() + 1e-8)  # Avoid division by zero
+    return 2 * img - 1
 
 
 
@@ -38,7 +39,7 @@ class DataTransform_M4RAW:
 
     def normalize(self, tensor):
         """Normalize tensor to range [0,1]."""
-        return (tensor - tensor.min()) / (tensor.max() - tensor.min() + 1e-8)  # Avoid division by zero
+        return normalize(tensor)
 
 
     def __call__(self, kspace, target, data_attributes, filename, slice_num):

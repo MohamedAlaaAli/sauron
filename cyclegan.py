@@ -236,7 +236,8 @@ class CycleGan():
     def validate(self, val_loader, l1, mse, LAMBDA_CYCLE, step=None, log_images=False):
         self.gen_hf.eval()
         self.gen_lf.eval()
-        
+        H_reals = 0
+        H_fakes = 0
         val_loop = tqdm(val_loader, leave=True, desc="Validation")
 
         for idx, data in enumerate(val_loop):
@@ -375,12 +376,12 @@ def main():
 
     model = CycleGan(disc_H, disc_Z, gen_H, gen_Z)
 
-    for epoch in range(150):
+    for epoch in tqdm(range(150), desc="Training Epochs"):
         print(f"Epoch : {epoch} Training")
-        model.train(train_loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler, 10)
-        model.validate(val_loader, L1, mse,10, step=epoch, log_images=True)
-    
-    
+        #model.train(train_loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler, 10)
+        model.validate(val_loader, L1, mse, 10, step=epoch, log_images=True)
+        
+        
     model.save_model()
 
 main()

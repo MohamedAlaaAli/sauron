@@ -375,7 +375,7 @@ def main():
 
     model = CycleGan(disc_H, disc_Z, gen_H, gen_Z)
 
-    for epoch in range(50):
+    for epoch in range(150):
         print(f"Epoch : {epoch} Training")
         model.train(train_loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler, 10)
         model.validate(val_loader, L1, mse,10, step=epoch, log_images=True)

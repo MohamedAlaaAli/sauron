@@ -25,7 +25,7 @@ lf_transform = DataTransform_M4RAW(img_size=256, combine_coil=True)
 #### Low Field Datasets: Train, Test, Val ####
 lf_dataset_train = LF_M4RawDataset(root_dir='dataset/low_field/multicoil_train', transform=lf_transform)
 lf_dataset_val = LF_M4RawDataset(root_dir="dataset/low_field/multicoil_val", transform=lf_transform)
-lf_dataset_test = LF_M4RawDataset(root_dir="dataset/low_field/multicoil_test", transform=lf_transform)
+#lf_dataset_test = LF_M4RawDataset(root_dir="dataset/low_field/multicoil_test", transform=lf_transform)
 
 #### High Field Datasets: Train, Test, Val
 hf_dataset_train = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
@@ -34,20 +34,20 @@ hf_dataset_train = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_
 hf_dataset_val = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
                                   transform=transform_hf,
                                   split="val")
-hf_dataset_test = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
-                                  transform=transform_hf,
-                                  split="test")
+#hf_dataset_test = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
+#                                  transform=transform_hf,
+#                                  split="test")
 
 
 #### Concat Datasets ####
 train_set = UnpairedMergedDataset(lf_dataset_train, hf_dataset_train)
 val_set = UnpairedMergedDataset(lf_dataset_val, hf_dataset_val)
-test_set = UnpairedMergedDataset(lf_dataset_test, hf_dataset_test)
+#test_set = UnpairedMergedDataset(lf_dataset_test, hf_dataset_test)
 
 #### DataLoaders ####
 train_loader = torch.utils.data.DataLoader(train_set, batch_size=64, shuffle=True, num_workers=6, collate_fn=lf_hf_collate_fn)
 val_loader = torch.utils.data.DataLoader(val_set, batch_size=32, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
-test_loader = torch.utils.data.DataLoader(test_set, batch_size=32, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
+#test_loader = torch.utils.data.DataLoader(test_set, batch_size=32, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
 
 
 def warmup(

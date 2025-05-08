@@ -113,18 +113,19 @@ class CycleGan():
     def train(self, train_loader, disc_optimizer, gen_optimizer, l1, mse, d_scaler, g_scaler, LAMBDA_CYCLE, warmup_steps=100):
 
         # 1) Warm-up discriminators
-        warmup(
-            train_loader,
-            self.disc_hf,
-            self.disc_lf,
-            self.gen_hf,
-            self.gen_lf,
-            disc_optimizer,
-            mse,
-            d_scaler,
-            self.device,
-            warmup_steps
-        )
+        if warmup_steps != 0 :
+            warmup(
+                train_loader,
+                self.disc_hf,
+                self.disc_lf,
+                self.gen_hf,
+                self.gen_lf,
+                disc_optimizer,
+                mse,
+                d_scaler,
+                self.device,
+                warmup_steps
+            )
 
         H_reals = 0
         H_fakes = 0
@@ -323,13 +324,13 @@ class CycleGan():
                     "D_H_fake": D_H_fake.mean().item()
                 })
 
-        self.save_best_model(G_loss, step=step)
+        self.save_best_model(cycle_l_loss, step=step)
 
         self.gen_hf.train()
         self.gen_lf.train()
     
     def save_best_model(self, mean_cycle_loss, step=None):
-        if mean_cycle_loss < self.best_loss:
+        if mean_cycle_loss <= self.best_loss:
             self.best_loss = mean_cycle_loss
             os.makedirs("checkpoints", exist_ok=True)
 
@@ -343,10 +344,18 @@ class CycleGan():
             print(f"Saved new best model with cycle loss: {mean_cycle_loss:.4f}")
 
     def save_model(self):
-        torch.save(self.gen_hf.state_dict(), "checkpoints/last_gen_hf.pth")
-        torch.save(self.gen_lf.state_dict(), "checkpoints/last_gen_lf.pth")
-        torch.save(self.disc_hf.state_dict(), "checkpoints/last_disc_hf.pth")
-        torch.save(self.disc_lf.state_dict(), "checkpoints/last_disc_lf.pth")
+        torch.save(self.gen_hf.state_dict(), "checkpoints/frequent/last_gen_hf.pth")
+        torch.save(self.gen_lf.state_dict(), "checkpoints/frequent/last_gen_lf.pth")
+        torch.save(self.disc_hf.state_dict(), "checkpoints/frequent/last_disc_hf.pth")
+        torch.save(self.disc_lf.state_dict(), "checkpoints/frequent/last_disc_lf.pth")
+    
+    def load_model_from_ckpts(self):
+        self.gen_hf.load_state_dict(torch.load("checkpoints/best_gen_hf.pth"))
+        self.gen_lf.load_state_dict(torch.load("checkpoints/best_gen_lf.pth"))
+        self.disc_hf.load_state_dict(torch.load("checkpoints/best_disc_hf.pth"))
+        self.disc_lf.load_state_dict(torch.load("checkpoints/best_disc_lf.pth"))
+
+
 
 
 def main():
@@ -376,10 +385,15 @@ def main():
 
     model = CycleGan(disc_H, disc_Z, gen_H, gen_Z)
 
-    for epoch in tqdm(range(150), desc="Training Epochs"):
+    for epoch in range(200):
+        model.load_model_from_ckpts()
         print(f"Epoch : {epoch} Training")
-        #model.train(train_loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler, 10)
+        model.train(train_loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler, 10, 0)
+        print(f"Epoch : {epoch} Validation")
         model.validate(val_loader, L1, mse, 10, step=epoch, log_images=True)
+        if epoch % 50 == 0 and epoch !=0:
+            model.save_model()
+
         
         
     model.save_model()

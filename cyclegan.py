@@ -305,7 +305,7 @@ class CycleGan():
                 axs[1].axis("off")
                 plt.suptitle(f"Sample {idx}")
                 plt.tight_layout()
-                plt.savefig(f"outputs/h_l{idx}.png", bbox_inches='tight')
+                plt.savefig(f"val_outputs/h_l{idx}.png", bbox_inches='tight')
                 plt.close()
 
 
@@ -341,6 +341,7 @@ class CycleGan():
             print(f"Saved new best model with cycle loss: {mean_cycle_loss:.4f}")
 
     def save_model(self):
+        os.makedirs("checkpoints/frequent", exist_ok=True)
         torch.save(self.gen_hf.state_dict(), "checkpoints/frequent/last_gen_hf.pth")
         torch.save(self.gen_lf.state_dict(), "checkpoints/frequent/last_gen_lf.pth")
         torch.save(self.disc_hf.state_dict(), "checkpoints/frequent/last_disc_hf.pth")

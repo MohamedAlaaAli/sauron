@@ -45,8 +45,8 @@ val_set = UnpairedMergedDataset(lf_dataset_val, hf_dataset_val)
 #test_set = UnpairedMergedDataset(lf_dataset_test, hf_dataset_test)
 
 #### DataLoaders ####
-train_loader = torch.utils.data.DataLoader(train_set, batch_size=64, shuffle=True, num_workers=6, collate_fn=lf_hf_collate_fn)
-val_loader = torch.utils.data.DataLoader(val_set, batch_size=32, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
+train_loader = torch.utils.data.DataLoader(train_set, batch_size=4, shuffle=True, num_workers=6, collate_fn=lf_hf_collate_fn)
+val_loader = torch.utils.data.DataLoader(val_set, batch_size=2, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
 #test_loader = torch.utils.data.DataLoader(test_set, batch_size=32, shuffle=False, num_workers=4, collate_fn=lf_hf_collate_fn)
 
 
@@ -196,23 +196,22 @@ class CycleGan():
             g_scaler.step(gen_optimizer)
             g_scaler.update()
             if idx % 500 == 0:
-                img_h = fake_h[0].detach().cpu().numpy() * 0.5 + 0.5
-                img_l = fake_l[0].detach().cpu().numpy() * 0.5 + 0.5
-                plt.imshow(img_h, cmap="gray")
-                plt.imshow(img_l, cmap="gray")
+                img_lh = fake_h[0].detach().cpu().numpy() * 0.5 + 0.5
 
                 fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-                axs[0].imshow(img_h, cmap="gray")
+                axs[0].imshow(img_lh, cmap="gray")
                 axs[0].set_title("High-res")
                 axs[0].axis("off")
 
-                axs[1].imshow(img_l, cmap="gray")
+                axs[1].imshow(low_field[0].detach().cpu().numpy()*0.5+0.5, cmap="gray")
                 axs[1].set_title("Low-res")
                 axs[1].axis("off")
                 plt.suptitle(f"Sample {idx}")
                 plt.tight_layout()
                 plt.savefig(f"outputs/h_l{idx}.png", bbox_inches='tight')
                 plt.close()
+
+
 
 
             if idx % 20 == 0:
@@ -294,23 +293,21 @@ class CycleGan():
             # Log and save images for the first batch
             if log_images and idx % 200 == 0:
                 os.makedirs("val_outputs", exist_ok=True)
-                img_h = fake_h[0].detach().cpu().numpy() * 0.5 + 0.5
-                img_l = fake_l[0].detach().cpu().numpy() * 0.5 + 0.5
-                plt.imshow(img_h, cmap="gray")
-                plt.imshow(img_l, cmap="gray")
+                img_lh = fake_h[0].detach().cpu().numpy() * 0.5 + 0.5
 
                 fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-                axs[0].imshow(img_h, cmap="gray")
+                axs[0].imshow(img_lh, cmap="gray")
                 axs[0].set_title("High-res")
                 axs[0].axis("off")
 
-                axs[1].imshow(img_l, cmap="gray")
+                axs[1].imshow(low_field[0].detach().cpu().numpy()*0.5+0.5, cmap="gray")
                 axs[1].set_title("Low-res")
                 axs[1].axis("off")
                 plt.suptitle(f"Sample {idx}")
                 plt.tight_layout()
-                plt.savefig(f"val_outputs/h_l{idx}.png", bbox_inches='tight')
+                plt.savefig(f"outputs/h_l{idx}.png", bbox_inches='tight')
                 plt.close()
+
 
             if idx % 20 == 0:
                 wandb.log({

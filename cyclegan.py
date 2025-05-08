@@ -384,7 +384,6 @@ def main():
     model = CycleGan(disc_H, disc_Z, gen_H, gen_Z)
 
     for epoch in range(200):
-        model.load_model_from_ckpts()
         print(f"Epoch : {epoch} Training")
         model.train(train_loader, opt_disc, opt_gen, L1, mse, d_scaler, g_scaler, 10, 0)
         print(f"Epoch : {epoch} Validation")
@@ -396,4 +395,3 @@ def main():
         
     model.save_model()
 
-main()

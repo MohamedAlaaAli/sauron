@@ -28,13 +28,13 @@ lf_dataset_val = LF_M4RawDataset(root_dir="dataset/low_field/multicoil_val", tra
 #lf_dataset_test = LF_M4RawDataset(root_dir="dataset/low_field/multicoil_test", transform=lf_transform)
 
 #### High Field Datasets: Train, Test, Val
-hf_dataset_train = HF_MRI_Dataset(root_dir="dataset/fastMRI_brain_DICOM", 
+hf_dataset_train = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
                                   transform=transform_hf,
                                   split="train")
-hf_dataset_val = HF_MRI_Dataset(root_dir="dataset/fastMRI_brain_DICOM", 
+hf_dataset_val = HF_MRI_Dataset(root_dir="dataset/brain_fastMRI_DICOM/fastMRI_brain_DICOM", 
                                   transform=transform_hf,
                                   split="val")
-#hf_dataset_test = HF_MRI_Dataset(root_dir="dataset/fastMRI_brain_DICOM", 
+#hf_dataset_test = HF_MRI_Dataset(root_dir="dataset/fastMRI_brain_DICOM/fastMRI_brain_DICOM", 
 #                                  transform=transform_hf,
 #                                  split="test")
 
